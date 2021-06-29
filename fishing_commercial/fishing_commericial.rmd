@@ -1,0 +1,107 @@
+---
+title: "fishing_commercial"
+author: "Rb"
+date: "6/29/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(here)
+library(tidyverse)
+library(readxl)
+library(skimr)
+```
+
+```{r data}
+fishing <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-06-08/fishing.csv')
+stocked <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-06-08/stocked.csv')
+```
+
+```{r cleaning data}
+raw_data <- readxl::read_xls(here("Data","commercial.xls"))
+
+raw_data %>%
+  pivot_longer(
+    names_to = "region",
+    values_to = "values",
+    cols = 4:9
+  ) %>% 
+  janitor::clean_names()
+
+sheet6 <- readxl::read_xls(here("Data","commercial.xls"), sheet = 6)
+
+clean_and_pivot <- function(sheet, cols_long){
+  
+  raw_data <- read_excel("Data/commercial.xls", sheet = sheet)
+  
+  raw_data %>%
+    select(-contains("...")) %>% 
+    pivot_longer(
+      names_to = "region",
+      values_to = "values",
+      cols = all_of(cols_long)
+    ) %>%
+    janitor::clean_names() %>%
+    rename_with(~str_replace(.x, "totals", "total"))
+  
+}
+
+df2 <- clean_and_pivot(6, 4:5)
+
+all_data <- tribble(
+  ~sheet, ~cols_long,
+  1, 4:9,
+  2, 4:5,
+  3, 4:10,
+  4, 4:8,
+  5, 4:12,
+  6, 4:5
+) %>% 
+  pmap_dfr(clean_and_pivot)
+
+all_data %>% 
+  filter(str_detect(region, "U.S. Total")) %>% 
+  filter(!is.na(region)) %>% 
+  mutate(species = fct_lump(species, 12)) %>% 
+  filter(species != "Other") %>% 
+  ggplot(aes(x = year, y = values, color = lake)) +
+  geom_line() +
+  facet_wrap(~species) +
+  theme(legend.position = "top")
+```
+
+```{r explore}
+fishing %>% 
+  select(-comments) %>% 
+  #group_by(lake) %>% 
+  mutate(species = fct_lump(species, n= 17)) %>% 
+  count(species, sort = TRUE, name = "freq") %>% 
+  ggplot(aes(fct_reorder(species, freq), freq))+
+  geom_col()+
+  coord_flip()
+
+#Filter salmon from data
+salmon <- fishing %>% 
+  select(-comments) %>% 
+  filter(grepl("Salmon|salmon", species) & !is.na(grand_total)) %>% 
+  mutate(species=str_replace_all(species,"salmon", "Salmon")) %>% 
+  group_by(year, lake, species) %>% 
+  summarise(total = sum(grand_total, na.rm = TRUE))
+
+salmon %>% 
+  ggplot(aes(year, total))+
+  geom_line(aes(color = species))+
+  facet_wrap(~lake, scales = "free_y")+
+  theme_light()+
+  theme(legend.position = "none")+
+  labs(title = "Number of Salmon Observed in US")
+
+unique(salmon$species)
+```
+
